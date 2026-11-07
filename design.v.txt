@@ -1,0 +1,127 @@
+module digital_queue (
+    input clk,
+    input reset,
+    input token_req,
+    input priority_req,
+    input serve,
+
+    output reg [3:0] generated_token,
+    output reg [3:0] called_token,
+    output reg [2:0] queue_count,
+    output reg priority_pending,
+    output reg queue_full,
+    output reg queue_empty
+);
+
+    reg [3:0] queue [0:3];
+    reg [3:0] priority_token;
+    reg [3:0] next_token;
+
+    reg [2:0] count_next;
+    reg priority_next;
+    reg [3:0] called_next;
+    reg [3:0] generated_next;
+    reg [3:0] token_next;
+
+    reg accept_normal;
+    reg accept_priority;
+    reg serve_normal;
+    reg serve_priority;
+
+    integer i;
+
+    always @(*) begin
+        count_next = queue_count;
+        priority_next = priority_pending;
+        called_next = called_token;
+        generated_next = generated_token;
+        token_next = next_token;
+
+        accept_normal = 0;
+        accept_priority = 0;
+        serve_normal = 0;
+        serve_priority = 0;
+
+        if (serve) begin
+            if (priority_pending)
+                serve_priority = 1;
+            else if (queue_count > 0)
+                serve_normal = 1;
+        end
+
+        if (token_req && priority_req &&
+            (!priority_pending || serve_priority))
+            accept_priority = 1;
+
+        if (token_req && !priority_req &&
+            (queue_count < 4 || serve_normal))
+            accept_normal = 1;
+
+        case ({accept_normal, serve_normal})
+            2'b10: count_next = queue_count + 1;
+            2'b01: count_next = queue_count - 1;
+            default: count_next = queue_count;
+        endcase
+
+        if (accept_priority || accept_normal) begin
+            generated_next = next_token;
+            token_next = next_token + 1;
+        end
+
+        if (serve_priority) begin
+            called_next = priority_token;
+            priority_next = 0;
+        end
+        else if (serve_normal) begin
+            called_next = queue[0];
+        end
+
+        if (accept_priority)
+            priority_next = 1;
+    end
+
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            generated_token <= 0;
+            called_token <= 0;
+            queue_count <= 0;
+            priority_pending <= 0;
+            priority_token <= 0;
+            next_token <= 1;
+            queue_full <= 0;
+            queue_empty <= 1;
+
+            for (i = 0; i < 4; i = i + 1)
+                queue[i] <= 0;
+        end
+        else begin
+            generated_token <= generated_next;
+            called_token <= called_next;
+            queue_count <= count_next;
+            priority_pending <= priority_next;
+            next_token <= token_next;
+
+            if (accept_priority)
+                priority_token <= next_token;
+
+            if (serve_normal) begin
+                for (i = 0; i < 3; i = i + 1)
+                    queue[i] <= queue[i+1];
+
+                queue[3] <= 0;
+            end
+
+            if (accept_normal) begin
+                if (serve_normal)
+                    queue[queue_count - 1'b1] <= next_token;
+                else
+                    queue[queue_count] <= next_token;
+            end
+
+            queue_full <= (count_next == 4);
+            queue_empty <= (count_next == 0) &&
+                            !priority_next;
+        end
+    end
+
+endmodule

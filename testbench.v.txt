@@ -1,0 +1,136 @@
+module tb;
+
+    reg clk;
+    reg reset;
+    reg token_req;
+    reg priority_req;
+    reg serve;
+
+    wire [3:0] generated_token;
+    wire [3:0] called_token;
+    wire [2:0] queue_count;
+    wire priority_pending;
+    wire queue_full;
+    wire queue_empty;
+
+    digital_queue dut (
+        .clk(clk),
+        .reset(reset),
+        .token_req(token_req),
+        .priority_req(priority_req),
+        .serve(serve),
+        .generated_token(generated_token),
+        .called_token(called_token),
+        .queue_count(queue_count),
+        .priority_pending(priority_pending),
+        .queue_full(queue_full),
+        .queue_empty(queue_empty)
+    );
+
+    always #5 clk = ~clk;
+
+    task request_token;
+        input is_priority;
+        begin
+            @(negedge clk);
+            token_req = 1;
+            priority_req = is_priority;
+
+            @(negedge clk);
+            token_req = 0;
+            priority_req = 0;
+        end
+    endtask
+
+    task serve_token;
+        begin
+            @(negedge clk);
+            serve = 1;
+
+            @(negedge clk);
+            serve = 0;
+        end
+    endtask
+
+    initial begin
+        $dumpfile("dump.vcd");
+        $dumpvars(0, tb);
+
+        clk = 0;
+        reset = 1;
+        token_req = 0;
+        priority_req = 0;
+        serve = 0;
+
+        #12;
+        reset = 0;
+
+        request_token(0);
+        request_token(0);
+        request_token(0);
+
+        request_token(1);
+        serve_token();
+
+        serve_token();
+        serve_token();
+        serve_token();
+
+        request_token(0);
+        request_token(0);
+        request_token(0);
+        request_token(0);
+
+        if (queue_count == 4)
+            $display("PASS: Normal queue is full.");
+        else
+            $display("FAIL: Queue did not reach capacity.");
+
+        request_token(0);
+
+        if (queue_count == 4 && generated_token == 8)
+            $display("PASS: Fifth request rejected; queue count remains 4.");
+        else
+            $display("FAIL: Queue-full rejection check failed.");
+
+        @(negedge clk);
+        reset = 1;
+
+        @(negedge clk);
+        reset = 0;
+
+        request_token(0);
+        request_token(0);
+
+        @(negedge clk);
+        token_req = 1;
+        priority_req = 0;
+        serve = 1;
+
+        @(negedge clk);
+        token_req = 0;
+        serve = 0;
+
+        @(negedge clk);
+
+        if (queue_count == 2 && called_token == 1 &&
+            generated_token == 3)
+            $display("PASS: Simultaneous request and service handled correctly.");
+        else
+            $display("FAIL: Simultaneous event test failed. Count=%0d Called=%0d Generated=%0d",
+                     queue_count, called_token, generated_token);
+
+        #10;
+        $finish;
+    end
+
+    initial begin
+        $monitor(
+            "Time=%0t Generated=%0d Called=%0d Count=%0d Priority=%b Full=%b Empty=%b",
+            $time, generated_token, called_token,
+            queue_count, priority_pending,
+            queue_full, queue_empty
+        );
+    end
+
+endmodule
